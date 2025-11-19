@@ -14,7 +14,7 @@ maintainers = [
     { name = "Emmanuel Battesti", email = "emmanuel.battesti@ensta.fr" }
 ]
 license = {file = "LICENSE"}
-requires-python = ">=3.8"
+requires-python = ">=3.8,<3.12"
 keywords = ["drones", "rescue", "autonomous", "swarm"]
 dependencies = [
     "fpdf>=1.7.2",
