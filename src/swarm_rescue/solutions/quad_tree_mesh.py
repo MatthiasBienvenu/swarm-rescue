@@ -17,10 +17,24 @@ class Point(np.ndarray):
         obj = np.asarray([x, y], dtype=dtype).view(cls)
         return obj
 
-    def __array_finalize__(self, obj):
-        # called when new views are created
-        # required, but can be empty
-        pass
+    # forces operations on Points to return a Point or a scalar
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        # transform np.ndarray into Point and keep scalars
+        inputs_arr = [x.view(np.ndarray) if isinstance(x, Point) else x for x in inputs]
+
+        result = getattr(ufunc, method)(*inputs_arr, **kwargs)
+
+        if isinstance(result, np.ndarray):
+            return result.view(Point)
+        else:
+            # keep scalar
+            return result
+
+    def __str__(self):
+        return f"Point({self.x}, {self.y})"
+
+    def __repr__(self):
+        return f"Point({self.x}, {self.y})"
 
     @property
     def x(self) -> int:
@@ -60,13 +74,15 @@ class QuadTreeMesh:
 
     def find_neighbors(self, target: "QuadTreeMesh") -> List["QuadTreeMesh"]:
         """find all the direct neighbors of the target inside self"""
-        # raise NotImplementedError()
 
-        def intersect(A, B):
+        def intersect(A: "QuadTreeMesh", B: "QuadTreeMesh"):
             Amin = A.center - A.width // 2
             Amax = A.center + A.width // 2
             Bmin = B.center - B.width // 2
             Bmax = B.center + B.width // 2
+
+            overlap_x = min(Amax.x, Bmax.x) - max(Amin.x, Bmin.x)
+            overlap_y = min(Amax.y, Bmax.y) - max(Amin.y, Bmin.y)
 
             return not (
                 Amax.x < Bmin.x or Amin.x > Bmax.x or Amax.y < Bmin.y or Amin.y > Bmax.y
@@ -173,6 +189,9 @@ if __name__ == "__main__":
     from matplotlib.colors import hsv_to_rgb
     from matplotlib.patches import Rectangle
 
+    print(Point(1, 2) + 3)
+    print(type(Point(1, 2) + 3))
+
     plt.ion()
     fig, ax = plt.subplots(figsize=(10, 10))
     ax.set_xlim(-120, 120)
@@ -217,7 +236,7 @@ if __name__ == "__main__":
             [p.y for p in points[: i + 1]],
             s=4,
             c=[
-                hsv_to_rgb(((hash(mesh.find(p)) / 128) % 1, 1, 1))
+                hsv_to_rgb(((hash(mesh.find(p)) / 256) % 1, 1, 1))
                 for p in points[: i + 1]
             ],
         )
@@ -238,7 +257,7 @@ if __name__ == "__main__":
             ax.add_patch(rect)
 
             # draw the "ok zone" (green) - where points don't trigger subdivision
-            # this is the area where linf_distance >= width/2 - EPS
+            # this is the area where l_inf_distance >= width/2 - EPS
             ok_zone_size = leaf.width // 2 - EPS
             ok_zone_rect = Rectangle(
                 (leaf.center.x - ok_zone_size, leaf.center.y - ok_zone_size),
