@@ -2,17 +2,18 @@ import random as rd
 
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.colors import hsv_to_rgb
 from matplotlib.patches import Rectangle
 
-from .quad_tree_mesh import EPS, Point, QuadTreeMesh
+from .quad_tree_mesh import EPS, QuadTreeMesh
 
 
 def draw_leaf_with_ok_zone(ax, leaf: QuadTreeMesh):
     # draw the outer boundary (blue)
     rect = Rectangle(
-        (leaf.center.x - leaf.width / 2, leaf.center.y - leaf.width / 2),
+        (leaf.center[0] - leaf.width / 2, leaf.center[1] - leaf.width / 2),
         leaf.width,
         leaf.width,
         fill=False,
@@ -26,7 +27,7 @@ def draw_leaf_with_ok_zone(ax, leaf: QuadTreeMesh):
     # this is the area where l_inf_distance >= width/2 - EPS
     ok_zone_size = leaf.width // 2 - EPS
     ok_zone_rect = Rectangle(
-        (leaf.center.x - ok_zone_size, leaf.center.y - ok_zone_size),
+        (leaf.center[0] - ok_zone_size, leaf.center[1] - ok_zone_size),
         2 * ok_zone_size,
         2 * ok_zone_size,
         fill=False,
@@ -50,7 +51,7 @@ def draw_leaf_and_neighbors(
     for n in neighbors:
         to_remove.append(
             Rectangle(
-                (n.center.x - n.width / 2, n.center.y - n.width / 2),
+                (n.center[0] - n.width / 2, n.center[1] - n.width / 2),
                 n.width,
                 n.width,
                 fill=False,
@@ -66,8 +67,8 @@ def draw_leaf_and_neighbors(
     to_remove.append(
         Rectangle(
             (
-                target_leaf.center.x - target_leaf.width / 2,
-                target_leaf.center.y - target_leaf.width / 2,
+                target_leaf.center[0] - target_leaf.width / 2,
+                target_leaf.center[1] - target_leaf.width / 2,
             ),
             target_leaf.width,
             target_leaf.width,
@@ -85,8 +86,8 @@ def draw_leaf_and_neighbors(
 
     to_remove.append(
         ax.text(
-            target_leaf.center.x,
-            target_leaf.center.y,
+            target_leaf.center[0],
+            target_leaf.center[1],
             "TARGET",
             color="red",
             ha="center",
@@ -98,8 +99,8 @@ def draw_leaf_and_neighbors(
     return to_remove
 
 
-print(Point(1, 2) + 3)
-print(type(Point(1, 2) + 3))
+print(np.array([1, 2]) + 3)
+print(type(np.array([1, 2]) + 3))
 
 plt.ion()
 fig, ax = plt.subplots(figsize=(10, 10))
@@ -111,7 +112,7 @@ ax.set_xlabel("X")
 ax.set_ylabel("Y")
 ax.set_title("QuadTree Mesh Visualization")
 
-mesh = QuadTreeMesh(Point(0, 0), 256, nx.Graph())
+mesh = QuadTreeMesh(np.array([0, 0]), 256, nx.Graph())
 
 with open("test.csv", "r") as f:
     lines = f.read().strip().split("\n")
@@ -121,12 +122,14 @@ with open("test.csv", "r") as f:
     for line in lines[1:]:
         if line.strip():
             x_str, y_str = line.split(",")
-            points.append(Point(int(x_str.strip()), int(y_str.strip())))
+            points.append(np.array([int(x_str.strip()), int(y_str.strip())]))
+
+    points = np.array(points)
 
 for i, point in enumerate(points):
     mesh.insert(point)
 
-    # ax.plot(point.x, point.y, "ro", markersize=4)
+    # ax.plot(point[0], point[1], "ro", markersize=4)
     ax.set_title(f"QuadTree Mesh Visualization - Point {i + 1}/{len(points)}")
 
     # Draw quadtree boundaries
@@ -141,8 +144,8 @@ for i, point in enumerate(points):
 
     # plot all points up to current
     ax.scatter(
-        [p.x for p in points[: i + 1]],
-        [p.y for p in points[: i + 1]],
+        points[: i + 1, 0],
+        points[: i + 1, 1],
         s=4,
         c=[hsv_to_rgb(((hash(mesh.find(p)) / 256) % 1, 1, 1)) for p in points[: i + 1]],
     )
