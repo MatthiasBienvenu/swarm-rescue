@@ -2,32 +2,36 @@ from dataclasses import dataclass
 from typing import Iterator, List, Self
 
 import networkx as nx
+import numpy as np
 
 EPS = 10  # QuadTreeMesh explained subdivide
 
 
-@dataclass
-class Point:
+class Point(np.ndarray):
     """Represent a point in the 2D space where x and y start at the bottom left corner"""
 
-    x: int
-    y: int
+    def __new__(cls, x: int, y: int, dtype=np.int_):
+        # python ints are arbitrary precision ints
+        # so when transforming into a np.ndarray,
+        # overflow may happen
+        obj = np.asarray([x, y], dtype=dtype).view(cls)
+        return obj
 
-    def __iter__(self) -> Iterator[int]:
-        yield self.x
-        yield self.y
+    def __array_finalize__(self, obj):
+        # called when new views are created
+        # required, but can be empty
+        pass
 
-    def l1_distance_to(self, other: Self) -> int:
-        return abs(self.x - other.x) + abs(self.y - other.y)
+    @property
+    def x(self) -> int:
+        return self[0]
 
-    def l2_distance_to(self, other: Self) -> int:
-        return ((self.x - other.x) ** 2 + (self.y - other.y) ** 2) ** 0.5
+    @property
+    def y(self) -> int:
+        return self[1]
 
-    def l2_distance_squared_to(self, other: Self) -> int:
-        return (self.x - other.x) ** 2 + (self.y - other.y) ** 2
-
-    def linf_distance_to(self, other: Self) -> int:
-        return max(abs(self.x - other.x), abs(self.y - other.y))
+    def l_inf_distance_to(self, other: Self) -> int:
+        return max(abs(self - other))
 
 
 class QuadTreeMesh:
@@ -54,6 +58,33 @@ class QuadTreeMesh:
         else:
             return self
 
+    def find_neighbors(self, target: "QuadTreeMesh") -> List["QuadTreeMesh"]:
+        """find all the direct neighbors of the target inside self"""
+        # raise NotImplementedError()
+
+        def intersect(A, B):
+            Amin = A.center - A.width // 2
+            Amax = A.center + A.width // 2
+            Bmin = B.center - B.width // 2
+            Bmax = B.center + B.width // 2
+
+            return not (
+                Amax.x < Bmin.x or Amin.x > Bmax.x or Amax.y < Bmin.y or Amin.y > Bmax.y
+            )
+
+        res = []
+        stack: List["QuadTreeMesh"] = [self]
+
+        while len(stack) != 0:
+            node = stack.pop()
+            if intersect(node, target):
+                if node.subdivided:
+                    stack.extend(node.children)
+                else:
+                    res.append(node)
+
+        return res
+
     def insert(self, point: Point):
         """
         Insert a point into the quadtree.
@@ -64,7 +95,7 @@ class QuadTreeMesh:
 
         node = self.find(point)
 
-        if point.linf_distance_to(node.center) >= node.width // 2 - EPS:
+        if point.l_inf_distance_to(node.center) >= node.width // 2 - EPS:
             print("OK")
             node.points.append(point)
         else:
