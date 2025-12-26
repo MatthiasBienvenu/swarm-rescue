@@ -1,51 +1,9 @@
-from dataclasses import dataclass
-from typing import Iterator, List, Optional, Self
+from typing import List, Optional, Self
 
 import networkx as nx
 import numpy as np
 
-EPS = 10  # QuadTreeMesh explained subdivide
-
-
-# class Point(np.ndarray):
-#     """Represent a point in the 2D space where x and y start at the bottom left corner"""
-
-#     def __new__(cls, x: int, y: int, dtype=np.int_):
-#         # python ints are arbitrary precision ints
-#         # so when transforming into a np.ndarray,
-#         # overflow may happen
-#         obj = np.asarray([x, y], dtype=dtype).view(cls)
-#         return obj
-
-#     # forces operations on Points to return a Point or a scalar
-#     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-#         # transform np.ndarray into Point and keep scalars
-#         inputs_arr = [x.view(np.ndarray) if isinstance(x, Point) else x for x in inputs]
-
-#         result = getattr(ufunc, method)(*inputs_arr, **kwargs)
-
-#         if isinstance(result, np.ndarray):
-#             return result.view(Point)
-#         else:
-#             # keep scalar
-#             return result
-
-#     def __str__(self):
-#         return f"Point({self[0]}, {self[1]})"
-
-#     def __repr__(self):
-#         return f"Point({self[0]}, {self[1]})"
-
-#     @property
-#     def x(self) -> int:
-#         return self[0]
-
-#     @property
-#     def y(self) -> int:
-#         return self[1]
-
-#     def l_inf_distance_to(self, other: Self) -> int:
-#         return max(abs(self - other))
+EPS = 10  # has to be a multiple of 2
 
 
 class QuadTreeMesh:
@@ -54,28 +12,28 @@ class QuadTreeMesh:
         center: np.ndarray,
         width: int,
         graph: nx.Graph,
-        # root: Optional[Self] = None,
+        root: Optional[Self],
     ):
         self.center = center
         self.width = width
         self.graph = graph
-        # self.root = root if root else self
+        self.root = root if root else self
         self.points: List[np.ndarray] = []
 
-        # Store children as a list [SW, SE, NW, NE]
+        # store children as a list [SW, SE, NW, NE]
         self.children: List["QuadTreeMesh"] = []
 
-        # graph.add_node(self)
-        # neighbors = self.root.find_neighbors(self)
-        # for node in neighbors:
-        #     inter = self.intersection(node)
+        print(f"added the node {self}")
+        graph.add_node(self)
 
-    def insert(self, point: np.ndarray):
+    def insert(self, point: np.ndarray) -> "QuadTreeMesh":
         """
         Insert a point into the quadtree.
 
         Be certain to only give points that are actually inside this
         square otherwise it could lead to unexepected behaviour.
+
+        returns the node the point got inserted in
         """
 
         node = self.find(point)
@@ -84,10 +42,11 @@ class QuadTreeMesh:
         if abs(point - node.center).max() >= node.width // 2 - EPS:
             print("OK")
             node.points.append(point)
+            return node
         else:
             print("NOT OK")
             node.subdivide()
-            node.insert(point)
+            return node.insert(point)
 
     def find(self, point: np.ndarray) -> "QuadTreeMesh":
         """Get the node where point resides"""
@@ -129,40 +88,62 @@ class QuadTreeMesh:
         ]
 
         self.children = [
-            QuadTreeMesh(center, self.width // 2, self.graph) for center in centers
+            QuadTreeMesh(center, self.width // 2, self.graph, self.root)
+            for center in centers
         ]
 
-        # Redistribute existing points to children
         for point in self.points:
             self.insert(point)
 
-        # self.graph.remove_node(self)
+        self.graph.remove_node(self)
         self.points.clear()
+
+        for child in self.children:
+            child.add_all_neighbors()
+
+        for child in self.children:
+            child.remove_illegal_edges()
+
+    def add_all_neighbors(self):
+        """adds all the edges from self to its neighbors"""
+
+        neighbors = self.root.find_neighbors(self)
+
+        for n in neighbors:
+            if not self.graph.has_edge(self, n):
+                self.graph.add_edge(
+                    self,
+                    n,
+                    weight=np.sqrt(((n.center - self.center) ** 2).sum()),
+                )
+
+    def remove_illegal_edges(self):
+        """removes all illegal edges that from self to another node"""
+
+        for other in list(self.graph.neighbors(self)):
+            box = self.overlap(other)
+            assert box is not None
+
+            overlap = box[1] - box[0]
+            assert 0 in overlap
+
+            # expand the box by to a width of EPS
+            box[:, overlap.tolist().index(0)] += [-EPS, EPS]
+
+            for p in self.points + other.points:
+                if all((box[0] <= p) & (p <= box[1])):
+                    self.graph.remove_edge(self, other)
+                    break
 
     def find_neighbors(self, target: "QuadTreeMesh") -> List["QuadTreeMesh"]:
         """find all the direct neighbors where edges touch in more than a point of the target inside self"""
-
-        # an intersection being a point does not count as an edge touch
-        # it needs non finite intersection
-        def edges_touch(A: "QuadTreeMesh", B: "QuadTreeMesh"):
-            Amin = A.center - A.width // 2
-            Amax = A.center + A.width // 2
-            Bmin = B.center - B.width // 2
-            Bmax = B.center + B.width // 2
-
-            overlap = np.minimum(Amax, Bmax) - np.maximum(Amin, Bmin)
-
-            return (
-                (overlap[0] > 0 and overlap[1] >= 0)  # X edges touch
-                or (overlap[0] >= 0 and overlap[1] > 0)  # Y edges touch
-            )
 
         res = []
         stack: List["QuadTreeMesh"] = [self]
 
         while len(stack) != 0:
             node = stack.pop()
-            if edges_touch(node, target):
+            if node.overlap(target) is not None:
                 if node.subdivided:
                     stack.extend(node.children)
                 elif node is not target:
@@ -182,13 +163,26 @@ class QuadTreeMesh:
 
         return leaves
 
-    # def intersection(self, other: Self):
-    #     Amin = self.center - self.width // 2
-    #     Amax = self.center + self.width // 2
-    #     Bmin = other.center - other.width // 2
-    #     Bmax = other.center + other.width // 2
+    def overlap(self, other: "QuadTreeMesh"):
+        Amin = self.center - self.width // 2
+        Amax = self.center + self.width // 2
+        Bmin = other.center - other.width // 2
+        Bmax = other.center + other.width // 2
 
-    #     overlap_box = (np.maximum(Amin, Bmin), np.minimum(Amax, Bmax))
+        box = np.array([np.maximum(Amin, Bmin), np.minimum(Amax, Bmax)])
+
+        return (
+            box
+            # the overlap is more than just a single point
+            if all(box[0] <= box[1]) and not all(box[0] == box[1])
+            else None
+        )
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.center))
+
+    def __str__(self) -> str:
+        return f"""Node{{center: ({self.center[0]}, {self.center[1]}), width: {self.width}}}"""
 
     @property
     def subdivided(self) -> bool:
