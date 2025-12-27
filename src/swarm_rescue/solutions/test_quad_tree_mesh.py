@@ -7,7 +7,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import hsv_to_rgb
 from matplotlib.patches import Rectangle
 
-from .quad_tree_mesh import EPS, QuadTreeMesh
+from .quad_tree_mesh import MIN_WALL_SIZE, QuadTreeMesh
 
 
 def main():
@@ -85,7 +85,7 @@ def main():
         to_remove = draw_leaf_and_neighbors(ax, root, leaf)
 
         plt.draw()
-        plt.pause(1)
+        plt.pause(2)
 
         for p in to_remove:
             p.remove()
@@ -109,7 +109,7 @@ def draw_leaf_with_ok_zone(ax, leaf: QuadTreeMesh):
 
     # draw the "ok zone" (green) - where points don't trigger subdivision
     # this is the area where l_inf_distance >= width/2 - EPS
-    ok_zone_size = leaf.width // 2 - EPS
+    ok_zone_size = leaf.width // 2 - MIN_WALL_SIZE
     ok_zone_rect = Rectangle(
         (leaf.center[0] - ok_zone_size, leaf.center[1] - ok_zone_size),
         2 * ok_zone_size,
@@ -152,8 +152,12 @@ def draw_leaf_and_neighbors(
         overlap = box[1] - box[0]
         assert 0 in overlap
 
-        # expand the box by to a width of 2 EPS
-        box[:, overlap.tolist().index(0)] += [-EPS, EPS]
+        if overlap[0] == 0:
+            # expand the box by to a width of EPS
+            box[:, 0] += [-MIN_WALL_SIZE, MIN_WALL_SIZE]
+        else:
+            # expand the box by to a width of EPS
+            box[:, 1] += [-MIN_WALL_SIZE, MIN_WALL_SIZE]
 
         if box is not None:
             to_remove.append(

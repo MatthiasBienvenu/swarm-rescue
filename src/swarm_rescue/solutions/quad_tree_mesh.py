@@ -3,7 +3,8 @@ from typing import List, Optional, Self
 import networkx as nx
 import numpy as np
 
-EPS = 10  # has to be a multiple of 2
+MIN_WALL_SIZE = 10
+DRONE_SIZE = 20
 
 
 class QuadTreeMesh:
@@ -39,7 +40,7 @@ class QuadTreeMesh:
         node = self.find(point)
 
         # we are using the L inf distance
-        if abs(point - node.center).max() >= node.width // 2 - EPS:
+        if abs(point - node.center).max() >= node.width // 2 - MIN_WALL_SIZE:
             print("OK")
             node.points.append(point)
             return node
@@ -121,19 +122,38 @@ class QuadTreeMesh:
         """removes all illegal edges that from self to another node"""
 
         for other in list(self.graph.neighbors(self)):
+            assert isinstance(other, QuadTreeMesh)
+
             box = self.overlap(other)
             assert box is not None
 
             overlap = box[1] - box[0]
+
             assert 0 in overlap
+            small_axis, large_axis = (0, 1) if overlap[0] == 0 else (1, 0)
 
             # expand the box by to a width of EPS
-            box[:, overlap.tolist().index(0)] += [-EPS, EPS]
+            box[:, small_axis] += [-MIN_WALL_SIZE, MIN_WALL_SIZE]
 
-            for p in self.points + other.points:
-                if all((box[0] <= p) & (p <= box[1])):
-                    self.graph.remove_edge(self, other)
-                    break
+            in_box = np.array(
+                [min(box[:, large_axis])]  # bottom of the box
+                + [
+                    p[large_axis]  # only take the relevant axis
+                    for p in self.points + other.points
+                    if all(
+                        (box[0] <= p) & (p <= box[1])
+                    )  # take the points inside the box
+                ]
+                + [max(box[:, large_axis])]  # top of the box
+            )
+            # I know I sort 2 elements more than needed but that's fine
+            in_box.sort()
+
+            diffs = in_box[1:] - in_box[:-1]
+
+            # check if the drone could go through any two points
+            if max(diffs) < DRONE_SIZE:
+                self.graph.remove_edge(self, other)
 
     def find_neighbors(self, target: "QuadTreeMesh") -> List["QuadTreeMesh"]:
         """find all the direct neighbors where edges touch in more than a point of the target inside self"""
